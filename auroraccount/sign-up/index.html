@@ -31,7 +31,7 @@
    <small>Password must have at least 8 characters.</small><br><br>
 
    <div id="error-box"></div><br>
-   <button type="submit">Sign Up</button><br><br>
+   <button type="submit" id="signup-button">Sign Up</button><br><br>
    <div id="sign-in-hyperlink">
    <a href="https://mii-man.github.io/aurorachatweb/auroraccount/sign-in">Sign In</a><br><br>
   </div>
@@ -42,93 +42,69 @@
 
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
-import { getAuth, createUserWithEmailAndPassword, updateProfile } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+  // 1. IMPORT everything first
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, sendEmailVerification} from "https://www.gstatic.com/firebasejs/12.7.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyByg74FpFpfcY9FiuHW6yRXFh0C8uAF7tk",
-    authDomain: "auroraccountdata.firebaseapp.com",
-    projectId: "auroraccountdata",
-    storageBucket: "auroraccountdata.firebasestorage.app",
-    messagingSenderId: "92117793421",
-    appId: "1:92117793421:web:1866c2e4074f36b5c2c0c4",
-    measurementId: "G-7PL1WG23PB"
-};
+  // 2. CONFIG (Make sure this is your NEW key from the new project!)
+  const firebaseConfig = {
+    apiKey: "AIzaSyBQsx7Bf0_tygHQHjWxiHWK49Bz6JntTdU", 
+    authDomain: "auroraccountdata-fd4d1.firebaseapp.com",
+    projectId: "auroraccountdata-fd4d1",
+    storageBucket: "auroraccountdata-fd4d1.firebasestorage.app",
+    messagingSenderId: "897601468342",
+    appId: "1:897601468342:web:55e2c568eb188c94fcb317",
+    measurementId: "G-L8EECSRDWB"
+  };
 
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-const auth = getAuth(app);
-const db = getFirestore(app);
+  // 3. INITIALIZE Firebase Services
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
 
-document.getElementById("signup-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
+  // 4. LOGIC for the form
+  const signupForm = document.getElementById('signup-form');
+  const errorBox = document.getElementById('error-box');
+signupForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.innerText = "";
 
-    const username = document.getElementById("signup-username").value.trim();
-    const email = document.getElementById("signup-email").value.trim();
-    const password = document.getElementById("signup-password").value;
+  const username = document.getElementById('signup-username').value.toLowerCase().trim();
+  const email = document.getElementById('signup-email').value;
+  const password = document.getElementById('signup-password').value;
 
-    const errorBox = document.getElementById("error-box");
+  try {
+    // 1. CHECK: See if username is taken
+    const userRef = doc(db, "usernames", username);
+    const userSnap = await getDoc(userRef);
 
-    // --- Username validation ---
-    const usernameRegex = /^[a-zA-Z0-9_-]{3,21}$/;
-    if (!usernameRegex.test(username)) {
-        errorBox.style.color = "red";
-        errorBox.textContent = "Username must be 3–21 characters and contain only letters, numbers, underscores, or dashes.";
-        return;
+    if (userSnap.exists()) {
+      throw new Error("This username is already taken.");
     }
 
+    // 2. CREATE AUTH: This is the part most likely to fail (weak password, etc.)
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+
+    // 3. SAVE TO FIRESTORE: Only happens if Step 2 succeeded
     try {
-        // Check if username already exists
-        const existing = await getDoc(doc(db, "usernames", username));
-        if (existing.exists()) {
-            errorBox.style.color = "red";
-            errorBox.textContent = "That username is already taken.";
-            return;
-        }
-
-        // Create Firebase Auth user
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-
-        // Set display name
-        await updateProfile(user, { displayName: username });
-
-        // Write user metadata
-        await setDoc(doc(db, "users", user.uid), {
-            username: username,
-            email: email
-        });
-
-        // Write username lookup document
-        await setDoc(doc(db, "usernames", username), {
-            email: email
-        });
-
-        // Success message + redirect
-        errorBox.style.color = "green";
-        errorBox.textContent = "Account created! Redirecting...";
-        setTimeout(() => {
-            window.location.href = "/aurorachatweb/auroraccount/sign-in";
-        }, 1500);
-
-    } catch (error) {
-        errorBox.style.color = "red";
-        switch (error.code) {
-            case "auth/email-already-in-use":
-                errorBox.textContent = "That email is already registered.";
-                break;
-            case "auth/invalid-email":
-                errorBox.textContent = "Please enter a valid email address.";
-                break;
-            case "auth/weak-password":
-                errorBox.textContent = "Password must be at least 8 characters.";
-                break;
-            default:
-                errorBox.textContent = "Signup failed: " + error.message;
-        }
+      await setDoc(doc(db, "usernames", username), {
+        email: email,
+        uid: user.uid
+      });
+      alert("Account created successfully!");
+    } catch (dbError) {
+      // CRITICAL: If saving the username fails, we should delete the Auth account 
+      // so the user can try again without "email already in use" errors.
+      await user.delete(); 
+      throw new Error("Database error. Please try again.");
     }
+
+  } catch (error) {
+    errorBox.innerText = error.message;
+    errorBox.style.color = "red";
+  }
 });
 </script>
 
